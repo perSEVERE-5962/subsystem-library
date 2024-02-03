@@ -13,13 +13,15 @@ import edu.wpi.first.cscore.CvSource;
 import edu.wpi.first.cscore.UsbCamera;
 import edu.wpi.first.math.geometry.Rotation3d;
 import edu.wpi.first.math.geometry.Transform3d;
+import edu.wpi.first.math.util.Units;
 import edu.wpi.first.networktables.IntegerArrayPublisher;
 import edu.wpi.first.networktables.NetworkTable;
 import edu.wpi.first.networktables.NetworkTableEntry;
 import edu.wpi.first.networktables.NetworkTableInstance;
+import edu.wpi.first.wpilibj2.command.SubsystemBase;
+import frc.robot.Vec3;
 
 import java.util.ArrayList;
-
 import org.opencv.core.Mat;
 import org.opencv.core.Point;
 import org.opencv.core.Scalar;
@@ -31,28 +33,38 @@ import org.opencv.imgproc.Imgproc;
  *
  * <p>Be aware that the performance on this is much worse than a coprocessor solution!
  */
-public class DetectAprilTags {
+public class DetectAprilTags extends SubsystemBase {
   private static DetectAprilTags instance;
 
-  private static ArrayList<double[]> posArray = new ArrayList<>();
-  private static ArrayList<double[]> rotArray = new ArrayList<>();
+  private static Vec3 posSingle = new Vec3(0, 0, 0);
+  private static ArrayList<Vec3> posArray = new ArrayList<>();
+  private static Vec3 rotSingle = new Vec3(0, 0, 0);
+  private static ArrayList<Vec3> rotArray = new ArrayList<>();
   public static int amountOfDetections = 0;
   private static ArrayList<Integer> tagId = new ArrayList<>();
 
   private final String family = "tag36h11"; // Usual tag family that FRC uses
-  private final double tagSize = 0.172; // Default: 1524 // Units are in meters
-  private final double[] focalData = {1011.3749416937393, 1008.5391755084075, 645.4955139388737, 508.32877656020196}; // 1280 x 720 camera
+  private final double tagSize = Units.inchesToMeters(6.75); // Units are in meters
+  private final double[] focalData = {
+    1011.3749416937393,
+    1008.5391755084075,
+    645.4955139388737,
+    508.32877656020196
+  }; // 1280 x 720 camera
 
   private final int brightness = 50;
   private final int resWidth = 1280;
   private final int resHeight = 720;
   private final int fps = 30;
 
-  public static void activate() {
+  // Dividing some values by some amount makes the resolution worse but makes the fps better
+
+  public static DetectAprilTags activate() {
     if (instance == null) {
       instance = new DetectAprilTags();
       instance.initDetector();
     }
+    return instance;
   }
 
   private void initDetector() {
@@ -75,7 +87,7 @@ public class DetectAprilTags {
 
     // Get the UsbCamera from CameraServer
     UsbCamera camera = CameraServer.startAutomaticCapture();
-  
+
     // Set camera settings
     camera.setBrightness(brightness);
     camera.setResolution(resWidth, resHeight);
@@ -159,10 +171,10 @@ public class DetectAprilTags {
         Rotation3d rot = pose.getRotation();
 
         // Set the values to their respective arrays
-        double[] positions = {pose.getX(), pose.getY(), pose.getZ()};
-        double[] rotations = {rot.getX(), rot.getY(), rot.getZ()};
-        posArray.add(positions);
-        rotArray.add(rotations);
+        posSingle.setAll(pose.getX(), pose.getY(), pose.getZ());
+        rotSingle.setAll(rot.getX(), rot.getY(), rot.getZ());
+        posArray.add(posSingle);
+        rotArray.add(rotSingle);
       }
 
       // put list of tags onto dashboard
@@ -185,7 +197,7 @@ public class DetectAprilTags {
    *
    * @return The position of the april tag index specified, or null if such april tag doesn't exist.
    */
-  public static double[] getAprilTagPos(int index) {
+  public static Vec3 getAprilTagPos(int index) {
     posArray.trimToSize();
     if (index > posArray.size() - 1) {
       return null;
@@ -202,7 +214,7 @@ public class DetectAprilTags {
    *
    * @return The rotation of the april tag index specified, or null if such april tag doesn't exist.
    */
-  public static double[] getAprilTagRot(int index) {
+  public static Vec3 getAprilTagRot(int index) {
     rotArray.trimToSize();
     if (index > rotArray.size() - 1) {
       return null;
@@ -210,19 +222,24 @@ public class DetectAprilTags {
     return rotArray.get(index);
   }
 
-  public static Integer getAprilTagId(int index) {
+  public static int getAprilTagIdFromIndex(int index) {
     tagId.trimToSize();
-    if (index > tagId.size() - 1) {
-      return null;
+    if (index < 0 || index >= tagId.size()) {
+      return -1;
     }
     return tagId.get(index);
   }
 
+  public static Integer getAprilTagIndexFromId(int id) {
+    tagId.trimToSize();
+    return tagId.indexOf(id);
+  }
+
   public static void displayAprilTagInformation() {
     for (int i = 0; i < amountOfDetections; i++) {
-      double[] pos = getAprilTagPos(i);
-      double[] rotPos = getAprilTagRot(i);
-      Integer id = getAprilTagId(i);
+      Vec3 pos = getAprilTagPos(i);
+      Vec3 rotPos = getAprilTagRot(i);
+      Integer id = getAprilTagIdFromIndex(i);
       NetworkTableEntry entryX = NetworkTableInstance.getDefault().getEntry("Tag Pos X: " + i);
       NetworkTableEntry entryY = NetworkTableInstance.getDefault().getEntry("Tag Pos Y: " + i);
       NetworkTableEntry entryZ = NetworkTableInstance.getDefault().getEntry("Tag Pos Z: " + i);
@@ -235,13 +252,13 @@ public class DetectAprilTags {
       if (pos != null && rotPos != null && id != null) {
         count.setInteger(amountOfDetections);
         ID.setInteger(id);
-        entryX.setDouble(pos[0]);
-        entryY.setDouble(pos[1]);
-        entryZ.setDouble(pos[2]);
-        entryRotX.setDouble(rotPos[0]);
-        entryRotY.setDouble(rotPos[1]);
-        entryRotZ.setDouble(rotPos[2]);
-        angle.setDouble(Math.toDegrees(Math.atan2(pos[0], pos[2])));
+        entryX.setDouble(pos.getX());
+        entryY.setDouble(pos.getY());
+        entryZ.setDouble(pos.getZ());
+        entryRotX.setDouble(rotPos.getX());
+        entryRotY.setDouble(rotPos.getY());
+        entryRotZ.setDouble(rotPos.getZ());
+        angle.setDouble(Math.toDegrees(Math.atan2(pos.getX(), pos.getZ())));
       }
     }
   }
